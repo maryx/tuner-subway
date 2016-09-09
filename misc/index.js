@@ -1,50 +1,46 @@
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
 var CONFIG = {
     'E': {
         s: 'Standard E Station / The Wall Street', // station name
-        c: [1, 1.2, 1.6, 2.0, 2.8, 3.6], // frame count
-        f: [329.628, 440.000, 587.330, 783.991, 987.767, 1318.51], // freq
+        f: [82.4069, 110.000, 146.832, 195.998, 246.942, 329.628], // freq
         n: ['E', 'A', 'D', 'G', 'B', 'E'], // note
         m: ['E', 'A', 'D', 'G', 'B', 'E2'] // mp3
     },
     'D': {
         s: 'Downtown D / Rocker Fellows Center',
-        c: [1, 1.2, 1.6, 2.0, 2.8, 3.6],
-        f: [293.665, 440.000, 587.330, 783.991, 987.767, 1318.51],
+        f: [73.4162, 110.000, 146.832, 195.998, 246.942, 329.628],
         n: ['D', 'A', 'D', 'G', 'B', 'E']
     },
     'B': {
         s: 'Bass Phish Park',
-        c: [0.4, 0.5, 0.6, 0.7],
-        f: [164.814, 220.000, 293.665, 391.995],
+        f: [41.2034, 55.0000, 73.4162, 97.9989],
         n: ['E', 'A', 'D', 'G']
     },
     '1': {
         s: 'Siren Charms Hall / Drop A# Avenue',
-        c: [1, 1.2, 1.6, 2.0, 2.8, 3.6],
-        f: [233.082, 349.228, 466.164, 622.254, 783.991, 1046.50],
+        f: [58.2705, 87.3071, 116.541, 146.832, 195.998, 261.626],
         n: ['A<span class="h">#</span>', 'F', 'A<span class="h">#</span>', 'D<span class="h">#</span>', 'G', 'C']
     },
     'G': {
         s: 'Banjo Blue Grass Garden',
-        c: [2.2, 0.6, 0.8, 1.2, 1.8],
         f: [391.995, 146.832, 195.998, 246.942, 293.665],
         n: ['G', 'D', 'G', 'B', 'D']
     },
     'V': {
         s: 'Violin Bridge / Grand Fiddle Junction',
-        c: [1, 1.6, 2.8, 3.6],
         f: [195.998, 293.665, 440.000, 659.255],
         n: ['G', 'D', 'A', 'E']
     },
     'U': {
         s: 'Ukulele Circle Beach-by-the-Sea',
-        c: [1.4, 1, 1.2, 1.5],
         f: [391.995, 261.626, 329.628, 440.000],
         n: ['G', 'C', 'E', 'A']
     }
 };
 var KEY_OFFSET = 49;
 var CHANNELS = 2;
+var SAMPLE_RATE = 44100;
+var FRAME_COUNT = 1.5 * SAMPLE_RATE; // length of sound = time * SAMPLE_RATE.
 var COLORS = {
     '1': 'g',
     'A': '',
@@ -61,23 +57,22 @@ var COLORS = {
 }
 var TUNERS = ['E', 'D', 'B', '1', 'G', 'V', 'U']; // E, D, bass, banjo, A#, violin, ukulele
 var ct = CONFIG['E']; // current tuner
+var aud = new AudioContext();
+var src1 = null;
+var src2 = null;
 
 document.addEventListener('DOMContentLoaded', function(ev) {
-    window.AudioContext = window.AudioContext || window.webkitAudioContext;
-    var aud; // audio context
-    var source;
-
     updateNotes();
     addTuners();
-    addListeners(aud, source);
+    addListeners();
 
     var tuners = document.querySelectorAll('.t');
-    tuners.forEach(function(tuner, i) {
+    [].forEach.call(tuners, function(tuner, i) { // can't use tuners.forEach because Safari is being weird
         tuner.addEventListener('mousedown', function(e) {
-            ct = CONFIG[TUNERS[i]];
+            ct = CONFIG[tuner.innerText];
             document.getElementById('s').innerText = ct.s;
             updateNotes();
-        }, false);
+        });
     });
 });
 
@@ -120,89 +115,92 @@ function addTuners() {
     }
 }
 
-function addListeners(aud, source) {
-    var notes = document.querySelectorAll('.n');
+function addListeners() {
     document.onkeydown = function(e) {
         var keyIndex = e.keyCode - KEY_OFFSET;
         if (keyIndex > -1 && keyIndex < ct.f.length) {
-            clearAudio(source, aud);
-            try {
-                aud = playSyntheticNote(source, keyIndex);
-            } catch(e) {
-                playFallbackNote(e);
-            }
             notes[keyIndex].classList.add('ac');
         };
     };
-
     document.onkeyup = function(e) {
         var keyIndex = e.keyCode - KEY_OFFSET;
         if (keyIndex > -1 && keyIndex < ct.f.length) {
             notes[keyIndex].classList.remove('ac');
+            clearAudio();
+            try {
+                playSyntheticNote(keyIndex);
+            } catch(e) {
+                playFallbackNote(e, keyIndex);
+            }
         }
     };
-
-    notes.forEach(function(note, i) {
-        note.addEventListener('mousedown', function(e) {
-            clearAudio(source, aud);
+    var notes = document.querySelectorAll('.n');
+    [].forEach.call(notes, function(note, i) { // can't use notes.forEach because safari
+        note.addEventListener('mouseup', function(e) {
+            clearAudio();
             try {
-                aud = playSyntheticNote(source, i);
+                playSyntheticNote(i);
             } catch(e) {
-                playFallbackNote(e);
+                playFallbackNote(e, i);
             }
-        }, false);
+        });
     });
 }
 
-function clearAudio(source, aud) {
-    if (source && source !== null) {
-        source.stop();
-        source = null;
+function clearAudio() {
+    if (src1 && src1 !== null) {
+        src1.stop();
+        src1 = null;
+    }
+    if (src2 && src2 !== null) {
+        src2.stop();
+        src2 = null;
     }
     if (aud && aud !== null && aud.state !== 'closed') {
-        aud.close().then(function() {
-            aud = null;
+        aud.close(); // FYI this returns a promise
+    }
+}
+
+function playSyntheticNote(keyIndex) {
+    aud = new AudioContext();
+    var buffer = aud.createBuffer(CHANNELS, FRAME_COUNT, SAMPLE_RATE);
+    src1 = createSource(buffer, keyIndex, 10000, function(s) {
+        return s;
+    });
+    if (ct.s.startsWith('S') || ct.s.startsWith('D') || ct.s.endsWith('k')) {
+        src2 = createSource(buffer, keyIndex, -5000, function(s) {
+            return Math.floor(s * 5000) / 2500;
         });
     }
 }
 
-function playSyntheticNote(source, keyIndex) {
-    aud = new AudioContext();
-    var frameCount = ct.c[keyIndex] * 30000;
-    var buffer = aud.createBuffer(CHANNELS, frameCount, ct.f[keyIndex] * 90);
-
-    createSource(frameCount, buffer, function(s) {
-        return s;
-    });
-    createSource(frameCount, buffer, function(s) {
-        return Math.floor(s) / 2;
-    });
-
-    return aud;
-}
-
-function createSource(frameCount, buffer, editor) {
-    source = aud.createBufferSource();
-    for (var channel = 0; channel < CHANNELS; channel++) {
-        var bufferData = buffer.getChannelData(channel);
-        for (var i = 0; i < frameCount; i++) {
-            var fadeIn = 0;
-            if (frameCount > frameCount / 10) {
-                fadeIn = i / frameCount;
-            }
-            var fadeOut = (frameCount - i) / frameCount;
-            bufferData[i] = editor(Math.sin(i * Math.PI/90)) * fadeIn * fadeOut;
-        }
-    }
-    source.buffer = buffer;
-    source.connect(aud.destination);
-    source.start(0);
-}
-
-function playFallbackNote(e) {
+function playFallbackNote(e, i) {
     console.error(e);
     var player = document.getElementById('p');
     if (ct.m) {
-        player.setAttribute('src', ct.mp3[keyIndex] + '.mp3');
+        player.setAttribute('src', ct.m[i] + '.mp3');
     }
+}
+
+function createSource(buffer, keyIndex, gain, editor) {
+    var src = aud.createBufferSource();
+    for (var channel = 0; channel < CHANNELS; channel++) {
+        var frames = buffer.getChannelData(channel);
+        for (var i = 0; i < FRAME_COUNT; i++) {
+            // sound * fadeIn * fadeOut
+            frames[i] = editor(Math.sin(i * 2 * Math.PI * ct.f[keyIndex] / SAMPLE_RATE))
+                * i / FRAME_COUNT
+                * (FRAME_COUNT - i) / FRAME_COUNT;
+        }
+    }
+    src.buffer = buffer;
+    src.connect(aud.destination);
+
+    var g = aud.createGain();
+    src.connect(g);
+    g.connect(aud.destination);
+    g.gain.value = gain;
+
+    src.start(0);
+    return src;
 }
